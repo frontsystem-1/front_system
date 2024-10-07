@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Example</title>
+</head>
+<body>
+    <ul>
+        {% for row in staff_data %}
+            <li>{{row[1]}}:{{row[2]}}</li>
+        {% endfor  %}
+    </ul>
+<script>
+	let staff_data = {{staff_data|tojson}}
+</script>
+</body>
+</html>
+
+
+
+
+
+

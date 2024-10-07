@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Example</title>
+</head>
+<body>
+    <form action="/new" method="post">
+        <label for="selectOption">名前を入力してください：</label>
+        <input type='text' name="name">
+        <br>
+        <button type="submit" onclick="card_alert()">送信</button>
+    </form>
+<script>
+    function card_alert() {
+	alert('カードをかざしてください。')
+    }
+
+    function home_page() {
+        window.location.href = window.location.origin +'/'
+    }
+</script>
+</body>
+</html>
+

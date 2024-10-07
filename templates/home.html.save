@@ -1,0 +1,391 @@
+{% extends "layout.html" %} 
+
+{% block content %}
+   
+    <div>
+    <div class="all">
+        <div id="createSpaceValue" style="display: none;">
+        <p class="close-icon" onClick="createSpacetReset()">×</p>
+        <h3>部屋情報追加</h3>
+        <div class="input-container">
+        <input class="input-field" id="newSpaceName" type="text">
+        <label for="input-field" class="input-label">部屋名</label>
+        <span class="input-highlight"></span>
+        </div>
+        <button onclick="submitData()">登録</button>
+        </div>
+        <div id="goOutValue" style="display: none;">
+        <p class="close-icon" onClick="goOutReset()">×</p>
+        <h3><div id="resident_name"></h3>
+        <button class="go-out-btn" onClick="pushGoOutData('go')">外出</button>
+        <button class="go-out-btn" onClick="pushGoOutData('return')">帰館</button>
+        <div class="input-container">
+        <input class="input-field" id="goOutReason" type="text">
+        <label for="input-field" class="input-label">備考</label>
+        <span class="input-highlight"></span>
+        </div>
+        </div>
+        <div id="spaceSchedule" style="display: none;">
+            <p class="space-element close-icon" onClick="scheduleReset()">×</p>
+            <div class="input-container">
+                <input class="input-field" id="rentalDate" type="date" value="{{day}}">
+                <label for="input-field" class="input-label">日付選択</label>
+                <span class="input-highlight"></span>
+                <button class="space-element" onClick="dateChange()">日付変更</button>
+            </div>
+            <h3>利用予定</h3>
+            <div class="container">
+            {% for space in space_data %}
+                {% if space[0] == None %}
+                <p>使用者:{{space[1]}}</p>
+                {% elif space[1] == None %}
+                <p>使用者:{{space[0]}}様</p>
+                {% endif %}
+                <p>開始時間:{{space[2]}}</p>
+                <p>終了時間:{{space[3]}}</p>
+                <p>備考:{{space[4]}}</p>
+                <hr>
+            {% endfor %}
+            </div>
+	    <button class="space-element" onClick="staffRentalRoom()">職員登録</button>
+        </div>
+	<div id="staffRoom" style="display: none;">
+                <p class="close-icon" onClick="staffRoomReset()">×</p>
+                <h3>利用時間</h3>
+		<div class="input-container">
+          	<select class="input-field" id="staffId">
+            	<option value=''>選択してください</option>
+	        {% for staff in staff_data %}
+		<option value="{{staff[0]}}">{{staff[1]}}</option>
+          	{% endfor %}
+		</select>
+         	<label for="input-field" class="input-label">氏名</label>
+          	<span class="input-highlight"></span>
+        	</div>
+                <div class="input-container">
+                <input class="input-field" id="startStaffTime" type="datetime-local">
+                <label for="input-field" class="input-label">開始時間</label>
+                <span class="input-highlight"></span>
+                </div>
+                <div class="input-container" >
+                <input class="input-field" id="endStaffTime" type="datetime-local">
+                <label for="input-field" class="input-label">終了時間</label>
+                <span class="input-highlight"></span>
+                </div>
+                <div class="input-container" >
+                <input class="input-field" id="staffReason" type="text">
+                <label for="input-field" class="input-label">備考</label>
+                <span class="input-highlight"></span>
+                </div>
+                <button onClick="submitData()">登録</button>
+	</div>
+
+	<div>
+            <div id="spaceCalendar" style="display: none;">
+                <p class="close-icon" onClick="dateReset()">×</p>
+                <h3>利用時間</h3>
+                <div>
+                <div class="input-container">
+                <input class="input-field" id="startDateTime" type="datetime-local">
+                <label for="input-fiel
+            </div>
+        </div>
+
+        <div>
+            <div id="conditionalElement" style="display: none;">
+                <p class="close-icon" onClick="dateReset()">×</p>
+                <h3>利用時間</h3>
+                <div>
+                <div class="input-container">
+                <input class="input-field" id="startDateTime" type="datetime-local">
+                <label for="input-field" class="input-label">開始時間</label>
+                <span class="input-highlight"></span>
+                </div>
+                <div class="input-container" >
+                <input class="input-field" id="endDateTime" type="datetime-local">
+                <label for="input-field" class="input-label">終了時間</label>
+                <span class="input-highlight"></span>
+                </div>
+                <div class="input-container" >
+                <input class="input-field" id="reason" type="text">
+                <label for="input-field" class="input-label">備考</label>
+                <span class="input-highlight"></span>
+                </div>
+                <button onClick="submitData()">登録</button>
+                </div>
+            </div>
+        </div>
+        <button id="selectCancel" onclick="goOutReset()" style="display: none;">選択解除</button>
+        <div class="list_container">
+            <div class="resident_row">
+	    {{space_rental_all}}
+	    <hr>
+	    {% for day in space_rental_all %}
+		{{day}}
+		<hr>
+	    {% endfor %}
+            {% for data_item in all_data[::-1] %}
+            {% for value in data_item %}
+		{% if value[1] == 'None' %}
+		<button class="resident-btn resident-btn-none-value">0000 データ なし</button>
+		{% else %}
+                <button class="resident-btn" onclick="pushResidentData('{{value[0]}}','{{value[1]}}',this)" ondblclick="goOutReset()">{{value[2]}} {{value[1]|replace('　', '<br>')}}様</button>
+            	{% endif %}
+	    {% endfor %}
+            <hr>
+            {% endfor %}
+            </div>
+            <div class="space-row space-container">
+	    <button class="space-btn" onClick="pushSpaceData('all')">一覧</button>
+            {% for space_name in all_space %}
+            <button class="space-btn" onClick="pushSpaceData('{{space_name[1]}}')">{{space_name[1]}}</button>
+            {% endfor %}
+            <button class="space-btn" onClick="createSpace()">新規作成</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        var resident_id = ''
+        var resident_name = ''
+        var space_name = ''
+        var go_out = ''
+        var today = ''
+        var lastClickedButton = null;
+	var staff_name = {{login_staff[1]|tojson}}
+
+        // 現在の日時を取得
+        var now = new Date();
+
+        // 年月日時分を2桁表示にしてフォーマット
+        var year = now.getFullYear();
+        var month = ('0' + (now.getMonth() + 1)).slice(-2);
+        var day_data = ('0' + now.getDate()).slice(-2);
+        var hours = ('0' + now.getHours()).slice(-2);
+        var minutes = ('0' + now.getMinutes()).slice(-2);
+
+        var currentDate =  year + '-' + month + '-' + day_data
+        var currentDateTime = year + '-' + month + '-' + day_data + ' ' + hours + ':' + minutes + ':00';
+	console.log(document.getElementById('staffId').value)
+
+        if (window.location.href ==  window.location.origin + '/' + {{staff_id|tojson}} + '/' + {{space_name|tojson}} + '/' + currentDate) {
+            document.getElementById('spaceSchedule').style.display = 'block';
+        } 
+        if ({{day|tojson}} != '') {
+            today = {{day|tojson}}
+            console.log(today)
+            document.getElementById("rentalDate").value = today
+            document.getElementById('spaceSchedule').style.display = 'block';
+        }
+
+        // input要素のvalue属性に設定
+        document.getElementById('startDateTime').value = currentDateTime;
+        document.getElementById('endDateTime').value = currentDateTime;
+
+
+        document.addEventListener("DOMContentLoaded", function() {
+            // ボタン内のテキストを取得
+            var buttons = document.querySelectorAll('.resident-btn');
+
+            buttons.forEach(function(button) {
+                var buttonText = button.innerText;
+
+                // スペースごとに分割して新しい段落要素を作成
+                var paragraphs = buttonText.split(/ +/).map(function(word) {
+                    return '<p>' + word + '</p>';
+                });
+
+                // 新しい段落要素をボタンに挿入
+                button.innerHTML = paragraphs.join('');
+            });
+        });
+
+
+        function pushResidentData(value1,value2,button) {
+            resident_id = value1
+            resident_name = value2
+            document.getElementById('resident_name').textContent = value2
+            console.log('select :' + resident_id)
+            document.getElementById('goOutValue').style.display = 'block';
+            document.getElementById('selectCancel').style.display = 'block';
+
+            // 前回のボタンからクラスを削除
+            if (lastClickedButton) {
+                lastClickedButton.classList.remove("selected");
+            }
+
+            // クリックされたボタンにクラスを追加
+            button.classList.add("selected");
+
+            // 最後にクリックされたボタンを更新
+            lastClickedButton = button;
+        }
+
+
+	function pushAllSpace(value) {
+	     document.getElementById('spaceCalendar').style.display = 'block';
+             document.getElementById('goOutValue').style.display = 'none'
+	}
+	
+        function pushSpaceData(value) {
+            space_name = value
+            console.log('select :' + space_name)
+            if (go_out != '') {
+                go_out = ''
+            }
+            if (resident_name == '') {
+                window.location.href = '/' + {{staff_id|tojson}} + '/' + space_name + '/' +  currentDate;
+            }
+            if (resident_name !=  '' && space_name != '') {
+                document.getElementById('conditionalElement').style.display = 'block';
+                document.getElementById('goOutValue').style.display = 'none'
+            }
+        }
+
+	function staffRentalRoom() {
+		if(window.location.href !=  window.location.origin + '/' + {{staff_id|tojson}} + '/home') {
+			space_name ={{space_name|tojson}}	
+			document.getElementById('spaceSchedule').style.display = 'none';
+			document.getElementById('staffRoom').style.display = 'block';
+                	document.getElementById('startStaffTime').value = currentDateTime
+                	document.getElementById('endStaffTime').value = currentDateTime
+		}
+	}
+
+        function pushGoOutData(value) {
+            if (resident_name == '') {
+                alert('入居者様を選択して下さい')
+                return
+            }
+            go_out = value
+            console.log('select :' + go_out)
+            if (space_name != '') {
+                space_name = ''
+            }
+            var post_data = {
+                resident_id: resident_id,
+                go_out: go_out,
+                go_out_reason: document.getElementById('goOutReason').value,
+		staff_name: staff_name,
+            };
+            console.log(post_data)
+            fetch('/home_submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(post_data)
+        });
+        alert(resident_name + '様の記録を登録しました。')
+        resident_id = ''
+        resident_name = ''
+        document.getElementById('resident_name').textContent = ''
+        document.getElementById('goOutValue').style.display = 'none';
+        document.getElementById('goOutReason').value = '';
+        document.getElementById('selectCancel').style.display = 'none';
+        if (lastClickedButton) {
+                lastClickedButton.classList.remove("selected");
+            }
+        }
+
+        function createSpace() {
+            document.getElementById('createSpaceValue').style.display = 'block'
+        }
+
+        function dateReset() {
+            document.getElementById('conditionalElement').style.display = 'none';
+            document.getElementById('startDateTime').value = currentDateTime
+            document.getElementById('endDateTime').value = currentDateTime
+            space_name = ''
+        }
+	
+	function staffRoomReset() {
+            document.getElementById('staffRoom').style.display = 'none';
+	    document.getElementById('staffId').value = '';
+	    document.getElementById('startStaffTime').value = ''
+            document.getElementById('startStaffTime').value = currentDateTime
+            document.getElementById('endStaffTime').value = currentDateTime
+            space_name = ''
+	}
+
+        function dateChange() {
+            var change_date = document.getElementById('rentalDate').value
+            console.log(change_date)
+            window.location.href = '/' + {{staff_id|tojson}} + '/' + {{space_name|tojson}} + '/' + change_date;
+        }
+
+        function goOutReset() {
+            document.getElementById('goOutValue').style.display = 'none'
+            resident_id = ''
+            resident_name = ''
+            document.getElementById("resident_name").textContent = ''
+            document.getElementById('selectCancel').style.display = 'none';
+            document.getElementById('conditionalElement').style.display = 'none';
+            document.getElementById('startDateTime').value = currentDateTime
+            document.getElementById('endDateTime').value = currentDateTime
+            document.getElementById('reason').value = ''
+            document.getElementById('goOutReason').value = '';
+            
+            if (lastClickedButton) {
+                lastClickedButton.classList.remove("selected");
+            }
+        }
+
+        function createSpacetReset() {
+        document.getElementById('createSpaceValue').style.display = 'none'
+        document.getElementById('newSpaceName').value = ''
+
+        }
+
+        function scheduleReset() {
+            window.location.href = '/' + {{staff_id|tojson}} + '/home';
+        }
+
+
+        function submitData() {
+            var post_data = {
+                resident_id: resident_id,
+                space_name: space_name,
+                rental_start_time: document.getElementById('startDateTime').value,
+                rental_end_time: document.getElementById('endDateTime').value,
+                reason: document.getElementById('reason').value,
+		staff_id: document.getElementById('staffId').value,
+		staff_rental_start: document.getElementById('startStaffTime').value,
+	        staff_rental_end: document.getElementById('endStaffTime').value,
+	        staff_reason: document.getElementById('staffReason').value,
+                go_out: go_out,
+                create_space: document.getElementById('newSpaceName').value
+            };
+            console.log(post_data)
+            fetch('/home_submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(post_data)
+        });
+        document.getElementById('conditionalElement').style.display = 'none';
+        document.getElementById('createSpaceValue').style.display = 'none';
+        document.getElementById('selectCancel').style.display = 'none';
+        document.getElementById('startDateTime').value = currentDateTime;
+        document.getElementById('endDateTime').value = currentDateTime;
+        document.getElementById('staffRoom').style.display = 'none';
+	document.getElementById('staffId').value = '';
+        document.getElementById('startStaffTime').value = currentDateTime;
+        document.getElementById('endStaffTime').value = currentDateTime;
+        document.getElementById('reason').value = '';
+        document.getElementById('staffReason').value = '';
+        document.getElementById('goOutReason').value = '';
+        resident_id = '';
+        space_name = '';
+        go_out = '';
+        resident_name = '';
+        document.getElementById("resident_name").textContent = '';
+        document.getElementById('newSpaceName').value = '';
+        if (lastClickedButton) {
+                lastClickedButton.classList.remove("selected");
+        }
+        }
+
+    </script>
+  {% endblock %}
+

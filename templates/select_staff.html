@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Example</title>
+</head>
+<body>
+    <form action="/submit" method="post">
+        <label for="selectOption">名前を選択してください：</label>
+        <select id="selectOption" name="option">
+            <option value="option1">オプション1</option>
+            {% for staff in staff_data %}
+                <option value="{{staff[1]}}">{{ staff[1] }}</option>
+            {% endfor %}
+        </select>
+        <br>
+        <button type="submit">送信</button>
+    </form>
+<script>
+    function create_page() {
+        window.location.href = window.location.origin +'/create'
+    }
+</script>
+</body>
+</html>

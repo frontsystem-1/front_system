@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div>
+	<input type='number' id="set_number">
+	<input type='text' id="set_name">
+	<select id="set_status">
+		<option value='一人外出可能'>一人外出可能</option>
+		<option value='一人外出可能(一部)'>一人外出可能(一部)</option>
+		<option value='一人外出不可能'>一人外出不可能</option>
+	</select>
+	<button>登録</button>
+	<button>削除</button>
+</div>
+<div class="list_container">
+            <div class="resident_row">
+            {% for data_item in all_data[::-1] %}
+            {% for value in data_item %}
+                {% if value[1] == 'None' %}
+                <button class="resident-btn resident-btn-none-value">0000 データ なし</button>
+                {% else %}
+                <button class="resident-btn" ondblclick="goOutReset()">{{value[2]}} {{value[1]|replace('　', '<br>')}}様</button>
+                {% endif %}
+            {% endfor %}
+            <hr>
+            {% endfor %}
+            </div>
+</div>
+<script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // ボタン内のテキストを取得
+            var buttons = document.querySelectorAll('.resident-btn');
+
+            buttons.forEach(function(button) {
+                var buttonText = button.innerText;
+
+                // スペースごとに分割して新しい段落要素を作成
+                var paragraphs = buttonText.split(/ +/).map(function(word) {
+                    return '<p>' + word + '</p>';
+                });
+
+                // 新しい段落要素をボタンに挿入
+                button.innerHTML = paragraphs.join('');
+            });
+        });
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="create-container">
+<h2>利用者情報更新</h2>
+<div>
+<h3>郵便物</h3>
+<select id="residentId">
+	<option value="-1">選択して下さい</option>
+	{% for resident in residents %}
+	<option value="{{resident[0]}}">{{resident[2]}}: {{resident[1]}}</option>
+	{% endfor %}
+</select>
+
+<select id="mailStatus">
+        <option value="all_record">選択して下さい</option>
+        <option value="keep">未遂</option>
+        <option value="complete">完了</option>
+</select>
+<button onClick="serchMail()">検索</button>
+<div>
+{% for mail in all_mail %}
+<p class="mailText">{{mail[7]}}様 日付:{{mail[4]}} 備考:{{mail[2]}} 確認:{{mail[3]}}</p>
+<p class="mailText">受け渡し:{{mail[5]}} 受け渡し担当:{{mail[6]}} {% if mail[5] == 'keep' %} <button onClick="mailComplete('{{mail[0]}}')">完了</button>{% endif  %}</p>
+<hr>
+{% endfor %}
+</div>
+</div>
+{{ pagination.links }}
+<script>
+	var staff_name = {{login_staff[1]|tojson}}
+	
+	var li_btn = document.getElementsByTagName('li');
+    	var active_page = document.getElementsByClassName('active');
+    	var disabled_btn = document.getElementsByClassName('disabled');
+
+    
+    	
+	function mailComplete(mail_id) {
+            var post_data = {
+                mail_id: mail_id,
+                staff_name: staff_name,
+                status: 'complete',
+            }
+            fetch('/home_submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(post_data)
+            });
+        }
+	
+	function serchMail() {
+	    var resident_id = document.getElementById('residentId').value
+	    var mail_status = document.getElementById('mailStatus').value
+	    window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/mail/' + resident_id + '/' + mail_status
+	}
+</script>
+{% endblock %}

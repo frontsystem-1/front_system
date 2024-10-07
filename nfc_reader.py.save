@@ -1,0 +1,210 @@
+import binascii
+import json
+import nfc
+import os
+import sys
+import MySQLdb
+import subprocess
+import requests
+from dotenv import load_dotenv
+import datetime
+import time
+import use_motor
+
+import timeout_decorator
+
+
+load_dotenv()
+
+
+#db接続
+try:
+        connection = MySQLdb.connect(
+        host='172.18.0.2',
+        user='root',
+        password='mypassword',
+        db='exit_entrance_management',
+        charset='utf8',
+        )
+        
+        cursor = connection.cursor()
+        cursor.execute('set global wait_timeout=86400')
+except Exception as e:
+        error_ms = str(e)
+        print('error: ',error_ms)
+        time.sleep(5)
+        subprocess.call(['sudo','systemctl','restart','start_app.service'])
+
+def error_push(e):
+now = datetime.datetime.now()
+now_format = str(now)[:-7]
+url = "https://slack.com/api/chat.postMessagedata = {
+        "token":'xoxp-5191608585938-5191476628739-6089819331569-498e2e5bbfc16e1d9d2fd25c2756a20a',
+        "channel":'app_error',
+        "text":"'%s' error: '%s'" % (now_format, e)
+         }
+
+
+class MyCardReader(object):
+    def __init__(self):
+            self.idm_data = ''
+            self.resident_id = ''
+            self.scan_card_name = ''
+            #self.card_type = input('go or return')
+            self.card_type = 'go'
+            self.now_format = ''
+            self.last_time = datetime.datetime.now()
+            self.error_judgment = ''
+            self.motor_run = ''
+            
+    def on_connect(self, tag):
+        now = datetime.datetime.now()
+        elapsed_time = (now - self.last_time).total_seconds()
+        print('time: ' + str(elapsed_time))
+        if elapsed_time < 5.0 and self.idm_data == str(binascii.hexlify(tag._nfcid))[2:-1]:
+            # 5秒以内に同じカードを読み込んでいたら、何もしない
+            print('timesleep')
+            self.motor_run = 'no'
+            return
+        else:
+            print('else')
+            self.now_format = str(now)[:-7]
+            #タグ情報を全て表示
+            #print(tag)
+            #IDmのみ取得して表示
+            self.motor_run = 'ok'
+            idm = binascii.hexlify(tag._nfcid)
+            self.idm_data = str(idm)[2:-1]
+            self.card_id_scan()
+            self.last_time = datetime.datetime.now()
+            
+    def card_id_scan(self):
+            #card_id = '012e44a22788c259'
+            print('card_id data')
+            print('self.idm_data' + self.idm_data)
+            """
+            command = [
+            'curl',
+            '-d', 'method=executeQuery',
+            '--data-urlencode', f"params=['', 'select id, name, idm from service_user_ekimae where idm=? limit 0, 1', null, ['{self.idm_data}']]",
+            '-X', 'POST',
+            'http://192.168.88.202/carekettle/public/api/store'
+            ]
+            """
+           # result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            #print('resident_data: ',result.stdout)
+            i_name = input('name :')
+            i_name = '羽鳥　啓一'
+            #i_id = 133
+            #i_id = input('id :')
+            json_string = f'{{"code": 0, "return": [{{"idm": "{self.idm_data}", "name": "{i_name}", "id": "{i_id}"}}]}}'
+            #json_string = result.stdout
+
+            # JSONを解析
+            json_data = json.loads(json_string)
+            print('json data :',json_data)
+
+            # "return" データを取得
+            return_data = json_data.get("return")
+            print('return_data: ',return_data)
+            print(return_data == [])
+            if return_data and return_data != []:
+                print(self.scan_card_name)
+                first_item = return_data[0]
+                name = first_item.get("name")
+                id_value = first_item.get("id")
+                idm = first_item.get("idm")
+                print("Name:", name)
+                print("ID:", id_value)
+                self.resident_id = id_value
+                self.scan_card_name = name
+                print(self.scan_card_name)
+            elif return_data == []:
+                self.resident_or_staff()
+            self.add_record_database()
+
+
+    def resident_or_staff(self):
+        cursor.execute("SELECT * FROM staff_card WHERE card_id = '%s'" % (self.idm_data))
+        staff_data = cursor.fetchone()
+        if staff_data is None:
+            self.resident_id = ''
+            self.scan_card_name = ''
+            print("No 'return' data found.")
+        elif staff_data is not None:
+            use_motor.move()
+            print('staff door_open')
+
+
+    def add_record_database(self):
+        if self.scan_card_name != '':
+                cursor.execute("INSERT INTO card_record(datetime,type,idm) values('%s','%s','%s')" % (self.now_format,self.card_type,self.scan_card_name))
+                connection.commit()
+
+"""
+    def error_push(e):
+        now = datetime.datetime.now()
+        now_format = str(now)[:-7]
+        url = "https://slack.com/api/chat.postMessage"
+        data = {
+        "token":'xoxp-5191608585938-5191476628739-6089819331569-498e2e5bbfc16e1d9d2fd25c2756a20a',
+        "channel":'app_error',
+        "text":"'%s' error: '%s'" % (now_format, e)
+         }
+"""
+
+    def read_id(self):
+        try:
+                print('start')
+                clf = nfc.ContactlessFrontend('usb')
+                try:
+                    clf.connect(rdwr={'on-connect': self.on_connect})
+                    
+                finally:
+                    clf.close()
+                    print('end')
+        except timeout_decorator.timeout_decorator.TimeoutError:
+                os.system(f'sudo pkill -f nfc_reader.py')
+                print('timeout')
+        except Exception as e:
+                error_push(e)
+                os.system(f'sudo pkill -f nfc_reader.py')
+                print('error')
+
+    def card_data(self):
+        #タッチ待ち
+        self.read_id()
+        return self.idm_data
+    
+    
+    def staff_signup_id(self, tag):
+        idm = binascii.hexlify(tag._nfcid)
+        self.idm_data = str(idm)[2:-1]
+            
+    def staff_signup(self):
+        try:
+                print('start')
+                clf = nfc.ContactlessFrontend('usb')
+                try:
+                    clf.connect(rdwr={'on-connect': self.staff_signup_id})
+                    
+                finally:
+                    clf.close()
+                    print('end')
+        except timeout_decorator.timeout_decorator.TimeoutError:
+                os.system(f'sudo pkill -f nfc_reader.py')
+                error_push(e)
+                print('timeout')
+        except Exception as e:
+                error_push(e)
+                os.system(f'sudo pkill -f nfc_reader.py')
+                print('error')
+
+    def signup_card_data(self):
+        self.staff_signup()
+        return self.idm_data
+
+#t = MyCardReader()
+#t.read_id()
+

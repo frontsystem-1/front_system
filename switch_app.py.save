@@ -1,0 +1,1172 @@
+import os
+import sys
+import subprocess
+from flask import Flask, request, render_template, jsonify, redirect, url_for
+from flask_paginate import Pagination, get_page_parameter
+from dotenv import load_dotenv
+import datetime
+import time
+import nfc
+import requests
+import MySQLdb
+from flask_bcrypt import Bcrypt
+
+import nfc_reader
+from transitions import Machine
+
+import psutil
+from itertools import chain
+
+app = Flask(__name__)
+bcrypt = Bcrypt()
+
+cr = nfc_reader.MyCardReader()
+print(cr.card_type)
+
+load_dotenv()
+
+"""
+headers = {
+    'Authorization': '42b8a2cbc94cd3a845eafffce207a3db789ff1bc1fa92d428a6c2e921bf3fa69428fb37b200195e58c4fbaa9dbf454fa',
+    'Content-Type': 'application/json; charset=utf8',
+    }
+"""
+
+headers = {
+    'Authorization': 'b4ea0b7201acabdf4fbfb781d5425426475cc9f074d0765a40fb308b3f23fd9c734ba84186c3528eb78b37e0901af291',
+    'Content-Type': 'application/json; charset=utf8',
+    }
+
+json_data = {
+    'command': 'press',
+    'parameter': 'default',
+    'commandType': 'command',
+    }
+
+
+
+#db接続
+try:
+    connection = MySQLdb.connect(
+    host='172.18.0.2',
+    user='root',
+    password='mypassword',
+    db='exit_entrance_management',
+    charset='utf8',
+    )
+    cursor = connection.cursor()
+    print('apache Trueexit')
+    cursor.execute('set global wait_timeout=86400')
+except Exception as e:
+    print('apache False')
+    error_ms = str(e)
+    print('error: ',error_ms)
+    time.sleep(5)
+    subprocess.call(['sudo','systemctl','restart','start_app.service'])
+
+states = ['go', 'return','go_record','return_record','post_go_record','post_return_record']
+
+transitions = [
+	{'trigger': 'go','source':['go', 'return'], 'dest': 'go_record'},#goの信号を受け取る
+	{'trigger':'go_record','source':'go_record', 'dest':'post_go_record','after':'insert_door'},#受け取った信号を登録する
+	{'trigger': 'post_go_record', 'source':'post_go_record', 'dest': 'go'},
+	{'trigger': 'return','source': ['return', 'go'], 'dest':'return_record'},#returnの信号を受け取る
+	{'trigger':'return_record','source':'return_record', 'dest':'post_return_record','after':'insert_door'},#returnの信号を受け取り、updateかpostかを識別し登録する
+	{'trigger': 'post_return_record', 'source':'post_return_record', 'dest': 'return'}
+	]
+
+
+auth_array = []
+post_data = []
+
+
+class SwitchView(object):
+	def __init__(self):
+	    self.select_state = ''
+	    self.return_post_method = ''
+	    self.url_after_create = ''
+	    self.url_after_update = 'no_url'
+	    self.login_staff = 'no staff'
+	    
+	def all_staff_id(staff_id):
+	    cursor.execute('SELECT id FROM staff')
+	    all_staff = tuple(item[0] for item in (cursor.fetchall()))
+	    print(all_staff)
+	    if int(staff_id) in all_staff:
+		    return True
+	
+	def serch_staff(staff_id):
+	    print('staff_id',staff_id)
+	    cursor.execute('SELECT * FROM staff WHERE id = %s' % (staff_id))
+	    serch_staff_data = cursor.fetchone()
+	    print(serch_staff_data)
+	    return serch_staff_data
+	
+	@app.route('/sign_in', methods=['GET','POST'])
+	def sign_in():
+	    try:
+		    print(cursor)
+		    now = datetime.datetime.now()
+		    day = str(now)[0:11]
+		    #SwitchView.login_staff = 'no staff'
+		    home_url = 'no url'
+		    if request.method == 'POST':
+			    login_id = request.form['login_id']
+			    password = request.form['password']
+			    print(login_id)
+			    print(password)
+			    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+			    cursor.execute('''
+				    SELECT * FROM staff
+				    WHERE 
+				    login_id = '%s'
+			    ''' % (login_id))
+			    auth_staff = cursor.fetchone()
+			    print('auth_staff: ',auth_staff)
+			    if auth_staff is None:
+				    
+				    return render_template('sign_in.html')
+			    elif bcrypt.check_password_hash(auth_staff[3],password):
+				    #SwitchView.login_staff = auth_staff
+				    print('login')
+				    home_url = request.host_url  + '/' + day + '/-1/all_record'
+				    print(SwitchView.serch_staff(auth_staff[0]))
+				    login_staff = SwitchView.serch_staff(auth_staff[0])
+				    print('staff_id')
+				    print(auth_staff[0])
+				    auth_array.append(auth_staff[0])
+				    post_data.append('更新')
+				    print('sign in auth_array')
+				    print(auth_array)
+				    #return redirect(url_for('return_view',staff_id=auth_staff[0],login_staff=login_staff,page_value=day,resident_id='-1',return_check='all_record'))
+				    return redirect(url_for('home_view',staff_id=auth_staff[0]))
+			    else:
+				    print('no staff')
+				    home_url = 'no url'
+				    return render_template('sign_in.html')
+	    except MySQLdb.OperationalError as e:
+		    print(e)
+	    return render_template('sign_in.html')
+			    
+			    
+	@app.route('/<int:staff_id>/sign_up', methods=['GET','POST'])
+	def sign_up(staff_id):
+	    try:
+		    message = ''
+		    print(request.method == 'POST')
+		    print(staff_id)
+		    print(auth_array)
+		    print(staff_id not in auth_array)
+		    login_staff = SwitchView.serch_staff(staff_id)
+		    if auth_array == [] and request.method == 'GET':
+			    print('copy url')
+			    print('staff id')
+			    print(auth_array)
+			    return redirect(url_for('sign_in'))
+		    elif auth_array == []:
+			    auth_array.append(staff_id)
+		    elif staff_id not in auth_array:
+			    return redirect(url_for('sign_in'))
+		    if SwitchView.all_staff_id(staff_id) and request.method == 'POST':
+			    name = request.form['name']
+			    print('name',name)
+			    kill_db_use()
+			    print('name',name)
+			    print(cr.signup_card_data())
+			    print(cr.idm_data)
+			    restart_db_use()
+			    cursor.execute('''
+				    INSERT INTO staff_card(name,card_id)
+				    VALUE('%s','%s')
+			    ''' % (name,cr.idm_data))
+			    connection.commit()
+			    print('name',name)
+			    message = '職員データを登録できました。'
+	    except UnboundLocalError:
+		    login_staff = SwitchView.serch_staff(staff_id)
+	    except MySQLdb.OperationalError as e:
+		    print(e)
+	    return render_template('sign_up.html',staff_id=staff_id,login_staff=login_staff,message=message)
+	
+	#residentの文字列をidとgoing_to_aloneに分ける
+	def select_resident_nb_value(resident):
+	    print(resident[:-10])
+	    resident_value = []
+	    while resident_value == []:
+		    
+		    if resident.endswith('出可能'):
+			    resident_value = [resident[:-6],resident[-6:]]
+		    elif resident.endswith(')'):
+			    resident_value = [resident[:-10],resident[-10:]]
+		    if resident_value == []:
+			    print(resident)
+			    print(resident_value)
+			    continue
+	    return resident_value
+	    
+	def all_residents():
+	    cursor.execute("SELECT * FROM resident WHERE name != 'None'")
+	    return cursor.fetchall()
+
+	#residentから一人外出可能な人だけを取り出す
+	def residents_value():
+	    cursor.execute("""SELECT
+			*
+			FROM
+			resident
+			WHERE 
+			going_to_alone = '一人外出可能' OR going_to_alone = '一人外出可能(一部)'
+			""")
+	    residents = cursor.fetchall()
+	    return residents
+	
+	#日付を選択し、その日の記録を取り出す
+	def today_value(day):
+	    cursor.execute("""SELECT
+			    resident.name,
+			    exit_day,
+			    exit_time,
+			    entrance_day,
+			    entrance_time,
+			    nb
+			    FROM
+			    door_record
+			    INNER JOIN
+			    resident
+			    ON
+			    door_record.resident_name = resident.name
+			    WHERE 
+			    exit_day = %s OR entrance_day = %s ORDER BY exit_time DESC""" % ("'" + day + "'","'" + day + "'")
+			    )
+	    today = cursor.fetchall()
+	    
+	    return today
+	
+	#すべてのdoor_recordか、entrance_dayにデータが入っている物のみか、entrance_dayがNullの物かを選択し、呼び出す
+	def serch_today_value(day,resident_id,return_check):
+	    print('resident_id: ',resident_id)
+	    select_value = 1
+	    resident_name = '-1'
+	    if int(resident_id) != -1:
+		    select_value = 0
+	    if int(resident_id) != -1:
+		    cursor.execute('SELECT name FROM resident where id = %s' % (resident_id))
+		    resident_data = cursor.fetchone()
+		    resident_name = resident_data[0]
+	    print('resident_name: ',resident_name)
+	    cursor.execute("SELECT * FROM door_record WHERE exit_day = '%s' or entrance_day = '%s'" % (day,day))
+	    record_check = cursor.fetchone() 
+	    if record_check is None:
+		    cursor.execute("""INSERT INTO door_record(resident_id,exit_day,exit_time,go_out_reason,resident_name) 
+		    VALUES(9999,'%s','00:00:00','error block record','error block')
+		    """ % (day))
+		    connection.commit()
+	    if return_check == 'all_record':
+		    print('1')
+		    print("""SELECT DISTINCT
+                            resident.name,
+                            exit_day,
+                            exit_time,
+                            entrance_day,
+                            entrance_time,
+                            nb,
+                            error_judgment,
+                            go_out_reason,
+                            staff_name
+                            FROM
+                            door_record
+                            INNER JOIN
+                            resident
+                            ON
+                            door_record.resident_name = resident.name
+                            WHERE
+                            exit_day = '%s'
+                            AND
+                            CASE
+                            WHEN resident_name = '%s' THEN TRUE ELSE %s END
+                            OR
+                            exit_day is Null
+                            AND
+                            entrance_day = '%s'
+                            AND
+                            CASE
+                            WHEN resident_name = '%s' THEN TRUE ELSE %s END
+                            ORDER BY exit_time DESC
+                            """
+                            % (day,resident_name,select_value,
+                            day,resident_name,select_value))
+		    cursor.execute("""SELECT DISTINCT
+			    resident.name,
+			    exit_day,
+			    exit_time,
+			    entrance_day,
+			    entrance_time,
+			    nb,
+			    error_judgment,
+                            go_out_reason,
+                            staff_name
+			    FROM
+			    door_record
+			    INNER JOIN
+			    resident
+			    ON
+			    door_record.resident_name = resident.name
+			    WHERE
+			    exit_day = '%s'
+			    AND
+			    CASE 
+			    WHEN resident_name = '%s' THEN TRUE ELSE %s END
+			    OR
+			    exit_day is Null
+			    AND
+			    entrance_day = '%s'
+			    AND
+			    CASE 
+			    WHEN resident_name = '%s' THEN TRUE ELSE %s END
+			    ORDER BY exit_time DESC
+			    """
+			    % (day,resident_name,select_value,
+			    day,resident_name,select_value)
+			    )
+			    
+	    elif return_check == 'no_return':
+		    print('2')
+		    print("""SELECT DISTINCT
+                            resident.name,
+                            exit_day,
+                            exit_time,
+                            entrance_day,
+                            entrance_time,
+                            nb,
+                            error_judgment,
+                            go_out_reason,
+                            staff_name
+                            FROM
+                            door_record
+                            INNER JOIN
+                            resident
+                            ON
+                            door_record.resident_name = resident.name
+                            WHERE
+                            exit_day = %s
+                            AND
+                            entrance_day is Null
+                            AND
+                            CASE
+                            WHEN resident_name = '%s' THEN TRUE ELSE %s END
+                            ORDER BY exit_time DESC
+                            """
+                            % ("'" + day + "'",resident_name,select_value))
+		    cursor.execute("""SELECT DISTINCT
+			    resident.name,
+			    exit_day,
+			    exit_time,
+			    entrance_day,
+			    entrance_time,
+			    nb,
+			    error_judgment,
+			    go_out_reason,
+                            staff_name
+			    FROM
+			    door_record
+			    INNER JOIN
+			    resident
+			    ON
+			    door_record.resident_name = resident.name
+			    WHERE
+			    exit_day = %s
+			    AND
+			    entrance_day is Null
+			    AND
+			    CASE 
+			    WHEN resident_name = '%s' THEN TRUE ELSE %s END
+			    ORDER BY exit_time DESC
+			    """
+			    % ("'" + day + "'",resident_name,select_value)
+			    )
+	    elif return_check == 'return':
+		    print('3')
+		    print("""SELECT DISTINCT
+                            resident.name,
+                            exit_day,
+                            exit_time,
+                            entrance_day,
+                            entrance_time,
+                            nb,
+                            error_judgment,
+                            go_out_reason,
+                            staff_name
+			    FROM
+                            door_record
+                            INNER JOIN
+                            resident
+                            ON
+                            door_record.resident_name = resident.name
+                            WHERE
+                            entrance_day = %s
+                            AND
+                            CASE
+                            WHEN resident_name = '%s' THEN TRUE ELSE %s END
+                            ORDER BY exit_time DESC
+                            """
+                            % ("'" + day + "'",resident_name,select_value))
+		    cursor.execute("""SELECT DISTINCT
+			    resident.name,
+			    exit_day,
+			    exit_time,
+			    entrance_day,
+			    entrance_time,
+			    nb,
+			    error_judgment,
+			    go_out_reason,
+                            staff_name
+			    FROM
+			    door_record
+			    INNER JOIN
+			    resident
+			    ON
+			    door_record.resident_name = resident.name
+			    WHERE
+			    entrance_day = %s
+			    AND
+			    CASE 
+			    WHEN resident_name = '%s' THEN TRUE ELSE %s END
+			    ORDER BY exit_time DESC
+			    """
+			    % ("'" + day + "'",resident_name,select_value)
+			    )
+	    today = cursor.fetchall()
+	    return today
+
+	#exitかentranceか選択し、新たにdoor_recordを登録する
+	def post_door_record(identify_day,identify_time,resident_id,day,time,nb,resident_name,go_out_reason,staff_name):
+	     print('post data')
+	     print('resident_name: ',resident_name)
+	     cursor.execute("""
+		 INSERT INTO door_record(resident_id,%s,%s,nb,resident_name,go_out_reason,staff_name)
+		 VALUES (%s,'%s','%s','%s','%s','%s','%s')
+		 """ % (identify_day,identify_time,resident_id,day,time,nb,resident_name,go_out_reason,staff_name)
+	     )
+	     connection.commit()
+	     print('post door record')
+
+	#resident_idを選択し、entranceがNullの状態の最新のdoor_recordに、選択した日時をentranceのday,timeとして登録
+	def update_door_record(day,time,resident_id):
+	    cursor.execute("""
+		UPDATE door_record
+		SET entrance_day = %s, entrance_time = %s
+		WHERE exit_time <= %s AND resident_id = %s AND entrance_time is Null ORDER BY id DESC LIMIT 1
+		""" % ("'" + day + "'","'" + time + "'","'" + time + "'",resident_id)
+	    )
+	    connection.commit()
+	
+	#選択した日付と一致するexit_dayを持つdoor_recordを呼び出す
+	def door_record_value(day):
+	    cursor.execute("SELECT * FROM door_record WHERE exit_day = %s ORDER BY exit_time DESC" % ("'" + day + "'"))
+	    door_record = cursor.fetchone()
+	    return door_record
+
+	#resident_idとexitかentranceの日付に一致したdoor_recordを呼び出す
+	def return_door_record(resident_id,day,time):
+	    cursor.execute("""
+		SELECT * FROM door_record 
+		WHERE resident_id = %s and exit_day = %s and exit_time <= %s and entrance_day is Null
+		""" % (resident_id,"'" + day + "'","'" + time + "'")
+	    )
+	    door_record = cursor.fetchone()
+	    return door_record
+	
+	#goかreturnかの信号を受け取り、door_recordを登録する
+	def insert_door(event):
+	    print('event',event)
+	    if type(event) == list:
+		    print('if list')
+		    request = event[0]
+		    page_value = event[1]
+		    resident_nb = [event[4],event[2]]
+		    resident_name = event[5]
+		    go_out_reason = event[6]
+		    staff_name = event[7]
+		    print(resident_nb)
+		    print(event[2])
+		    door_time = event[3]
+		    print(resident_nb)
+		    day = 'exit_day'
+		    time = 'exit_time'
+		    return_value = ''
+	    elif type(event) != list:
+		    print('event.kwargs.get: ',event.kwargs.get('resident_name'))
+		    request = event.kwargs.get('data')
+		    page_value = event.kwargs.get('page')
+		    resident_nb = SwitchView.select_resident_nb_value(event.kwargs.get('resident_nb'))
+		    resident_name = event.kwargs.get('resident_name')
+		    door_time = event.kwargs.get('door_time')
+		    go_out_reason = ''
+		    staff_name = event.kwargs.get('staff_name')
+		    print(resident_nb)
+		    day = 'exit_day'
+		    time = 'exit_time'
+		    return_value = ''
+	    """
+	    request = event.kwargs.get('data')
+	    page_value = event.kwargs.get('page')
+	    print(event.kwargs.get('resident_nb'))
+	    print(SwitchView.select_resident_nb_value(event.kwargs.get('resident_nb')))
+	    resident_nb = SwitchView.select_resident_nb_value(event.kwargs.get('resident_nb'))
+	    door_time = event.kwargs.get('door_time')
+	    print(resident_nb)
+	    day = 'exit_day'
+	    time = 'exit_time'
+	    return_value = ''
+	    """
+	    if request == 'return':
+		    day = 'entrance_day'
+		    time = 'entrance_time'
+		    return_value = SwitchView.return_door_record(resident_nb[0],page_value,door_time)
+		    if return_value != None:
+			    SwitchView.update_door_record(page_value,door_time,resident_nb[0])
+		    elif return_value == None:
+			    SwitchView.post_door_record(day,time,resident_nb[0],page_value,door_time,resident_nb[1],resident_name,go_out_reason,staff_name)
+		    return
+	    print('resident_name: ',resident_name)
+	    SwitchView.post_door_record(day,time,resident_nb[0],page_value,door_time,resident_nb[1],resident_name,go_out_reason,staff_name)
+	    
+	
+machine = Machine(model=SwitchView, states=states, transitions=transitions, initial='go',
+				    auto_transitions=False, ordered_transitions=False,send_event=True)
+
+	
+@app.route('/<int:staff_id>/<string:page_value>/<string:resident_id>/<string:return_check>', methods=['GET','POST'])
+def return_view(staff_id,page_value,resident_id,return_check):
+    try:
+	    if auth_array == [] and request.method == 'GET':
+		    print('copy url')
+		    print('staff id')
+		    print(auth_array)
+		    return redirect(url_for('sign_in'))
+	    elif auth_array == []:
+		    auth_array.append(staff_id)
+	    elif int(staff_id) not in auth_array:
+		    return redirect(url_for('sign_in'))
+	    now = datetime.datetime.now()
+	    day = str(now)[0:11]
+	    time = str(now)[11:19]
+	    today = ''
+	    residents = ''
+	    limit = ''
+	    page = ''
+	    pagination = ''
+	    residents = SwitchView.residents_value()
+	    print('resident_id: ',resident_id)
+	    print('door_record')
+	    
+	    door_record = SwitchView.door_record_value(page_value)
+	    print(door_record)
+	    print(page_value)
+	    method_value = request.method
+	    print(request.url)
+	    select_resident_name = '-1'
+	    cursor.execute("select name from staff where id = '%s'" % (staff_id))
+	    staff_name = cursor.fetchone()
+	    if SwitchView.all_staff_id(staff_id) and request.method == 'POST':
+		    resident_nb = SwitchView.select_resident_nb_value(request.form['select_resident_id'])
+		    cursor.execute('SELECT name FROM resident where id = %s' % (resident_nb[0]))
+		    select_resident = cursor.fetchone()
+		    print(select_resident)
+		    print('select_resident_name: ',select_resident[0])
+		    print('type: ',type(select_resident))
+		    select_resident_name = select_resident[0]
+		    print('door_time: ',request.form.get('door_time'))
+		    today = SwitchView.serch_today_value(page_value,resident_id,return_check)
+		    #if door_record is None and request.form.get('go_out') is not None or str(request.form.get('door_time')) != str(door_record[3]) and request.form.get('go_out') is not None:
+		    if door_record is None and request.form.get('go_out') is not None:
+		    # door_record が None であり、go_out が送信された場合の処理
+			    print('select_resident insert_door ')
+			    machine.add_model(SwitchView, initial=request.form.get('go_out'))
+			    current_state = machine.get_state()
+			    print("Current state:",SwitchView.state)
+			    SwitchView.trigger(request.form.get('go_out'))
+			    print("Current state:",SwitchView.state)
+			    SwitchView.trigger(SwitchView.state,data=request.form.get('go_out'),page=page_value,door_time=request.form['door_time'],resident_nb=request.form['select_resident_id'],resident_name=select_resident_name,staff_name=staff_name[0])
+			    #resident_nb = SwitchView.select_resident_nb_value(request.form['select_resident_id'])
+			    
+		    elif door_record is not None and request.form.get('door_time') is not None and str(request.form.get('door_time')) != str(door_record[3]) and request.form.get('go_out') is not None:
+		    # door_record が None でなく、door_time が送信されていて、かつ door_time が door_record[3] と異なる場合の処理
+		    # (indexページのformでデータを送った場合)
+			    print('select_resident insert_door ')
+			    print('state')
+			    print(request.form.get('door_date'))
+			    print(request.form.get('door_time'))
+			    print(SwitchView.state)
+			    SwitchView.trigger(request.form.get('go_out'))
+			    print(SwitchView.state)
+			    SwitchView.trigger(SwitchView.state,data=request.form.get('go_out'),page=request.form['door_date'],door_time=request.form['door_time'],resident_nb=request.form['select_resident_id'],resident_name=select_resident_name,staff_name=staff_name[0])
+			    #resident_nb = SwitchView.select_resident_nb_value(request.form['select_resident_id'])
+			    print(SwitchView.state)
+			    trigger_name = request.form.get('go_out')
+			    print(trigger_name)
+			    if trigger_name == 'go':
+				    SwitchView.state = 'go'
+			    elif trigger_name == 'return':
+				    SwitchView.state = 'return'
+			    
+			    print(SwitchView.state)
+			    
+		    if resident_nb != []:
+			    today = SwitchView.serch_today_value(page_value,-1,return_check)
+	    if request.method == 'GET':
+		    if page_value != 'favicon.ico':
+			    day_value = page_value
+			    today = SwitchView.serch_today_value(page_value,resident_id,return_check)
+	    
+	    login_staff = SwitchView.serch_staff(staff_id)
+	    page = request.args.get(get_page_parameter(), type=int, default=1)
+	    limit = today[(page -1)*10:page*10]
+	    pagination = Pagination(page=page, total=len(today))
+	    connection.commit()
+	    
+    except UnboundLocalError:
+	    login_staff = SwitchView.serch_staff(staff_id)
+    except MySQLdb.ProgrammingError as e:
+	    print('ProgramingError')
+	    print(e)
+	    login_staff = SwitchView.serch_staff(staff_id)
+    except MySQLdb.OperationalError as e:
+	    print(e)
+	    login_staff = SwitchView.serch_staff(staff_id)
+    return render_template('index.html', staff_id=staff_id,login_staff=login_staff,residents=residents, today=limit, day_value=day, local_time=time, pagination=pagination, page=page, page_value=page_value, resident_data=resident_id, return_check=return_check)
+
+def post_resident(self,staff_id,name,number,room_number,going_to_alone,card_id):
+    try:
+	    if staff_id not in auth_array:
+		    return redirect(url_for('sign_in'))
+	    self.url_after_create = 'no url'
+	    now = datetime.datetime.now()
+	    day = str(now)[0:11]
+	    cursor.execute("""
+	    INSERT INTO 
+	    resident
+	    (name,number,number_people,going_to_alone,card_id) 
+	    VALUES
+	    ('%s',%s,%s,'%s','%s')
+	    """ % (name,int(number),int(room_number),going_to_alone,card_id))
+	    connection.commit()
+	    self.url_after_create = request.host_url +'/' + str(staff_id) + '/' + day + '/-1/all_record'
+    except ValueError:
+	    print('ValueError')
+	    self.url_after_create = request.host_url + '/' + str(staff_id) + '/create'
+    print(self.url_after_create)
+
+def post_update_resident(self,staff_id,resident_id,name,number,room_number,going_to_alone,card_id):
+    try:
+	    if auth_array == [] and request.method == 'GET':
+		    print('copy url')
+		    print('staff id')
+		    print(auth_array)
+		    return redirect(url_for('sign_in'))
+	    elif auth_array == []:
+		    auth_array.append(staff_id)
+	    elif staff_id not in auth_array:
+		    return redirect(url_for('sign_in'))
+	    self.url_after_update = 'no url'
+	    now = datetime.datetime.now()
+	    day = str(now)[0:11]
+	    cursor.execute("""
+	    UPDATE resident
+	    SET name = '%s',number = %s,number_people= %s,going_to_alone='%s',card_id='%s'
+	    WHERE id = %s
+	    """ % (name,int(number),int(room_number),going_to_alone,card_id,resident_id))
+	    connection.commit()
+	    self.url_after_update = request.host_url +'/' + str(staff_id) + '/' + day + '/-1/all_record'
+    except ValueError:
+	    print('ValueError')
+	    self.url_after_update = request.host_url + '/' + str(staff_id) + '/update'
+    print(self.url_after_update)
+    
+def kill_db_use():
+	# 停止したいプロセス名を指定する
+	process_name = "db_use.py"
+	print('kill db_use')
+	os.system(f'sudo pkill -f {process_name}')
+
+#変更後
+def restart_db_use():
+	process_name = "/var/www/html/db_use.py"
+	process = subprocess.Popen(["python3", process_name])
+	print('restart_db_use')
+
+@app.route('/<int:staff_id>/create', methods=['GET','POST'])
+def new_resident_create(staff_id):
+    try:
+	    
+	    if staff_id not in auth_array:
+		    return redirect(url_for('sign_in'))
+	    url_after='no url'
+	    print(request.method)
+	    if SwitchView.all_staff_id(staff_id) and request.method == 'POST' and request.form['new_name'] != '':
+		    if request.form['create_message']:
+			    print(request.form['create_message'])
+
+			    post_data.append(request.form['create_message'])
+		    kill_db_use()
+		    print(cr.card_data())
+		    print(cr.idm_data)
+		    post_resident(SwitchView,staff_id,request.form['new_name'],request.form['new_number'],request.form['new_room_number'],request.form['new_going_to_alone'],cr.idm_data)
+		    url_after=SwitchView.url_after_create
+		    restart_db_use()
+	    login_staff = SwitchView.serch_staff(staff_id)
+    except UnboundLocalError:
+	    login_staff = SwitchView.serch_staff(staff_id)	    
+    except MySQLdb.OperationalError as e:
+	    print(e)
+    except ValueError:
+	    print('new resident create')
+    
+    return render_template('create.html',staff_id=staff_id,login_staff=login_staff,url_after_create=url_after)
+    
+	
+@app.route('/<int:staff_id>/update', methods=['GET','POST'])
+def resident_update(staff_id):
+    try:
+	    if staff_id not in auth_array:
+		    return redirect(url_for('sign_in'))
+	    residents = SwitchView.all_residents()
+	    login_staff = SwitchView.serch_staff(staff_id)
+	    if SwitchView.all_staff_id(staff_id) and request.method == 'POST' and request.form['name'] != '':
+		    print('print')
+		    print(request.url)
+		    print(request.method)
+		    print(request.form['name'])
+		    if request.form['update_message']:
+			    print(request.form['update_message'])
+
+			    post_data.append(request.form['update_message'])
+		    print('update select')
+		    if request.form['card_id'] == 'change':
+			    kill_db_use()
+			    print('no db_use')
+			    cr.card_data()
+			    card_id = cr.idm_data
+			    post_update_resident(SwitchView,staff_id,request.form['select_resident_id'],request.form['name'],request.form['number'],request.form['room_number'],request.form['going_to_alone'],cr.idm_data)
+			    url_after = SwitchView.url_after_update
+			    restart_db_use()
+		    elif request.form['card_id'] != 'change':
+			    print(request.form['select_resident_id'])
+			    print(request.form['name'])
+			    post_update_resident(SwitchView,staff_id,request.form['select_resident_id'],request.form['name'],request.form['number'],request.form['room_number'],request.form['going_to_alone'],request.form['card_id'])
+			    url_after = SwitchView.url_after_update
+			    print(url_after)
+		    print(url_after)
+		    return render_template('update.html',staff_id=staff_id,login_staff=login_staff,residents=residents, url_after_update=url_after)
+	    else:
+		    url_after = 'no url'
+	    
+    except UnboundLocalError:
+	    login_staff = SwitchView.serch_staff(staff_id)
+    except MySQLdb.OperationalError as e:
+	    print(e)
+    except ValueError:
+	    print('update resident')
+    
+    return render_template('update.html',staff_id=staff_id,login_staff=login_staff,residents=residents,url_after_update=url_after)
+
+
+@app.route('/<int:staff_id>/sign_out', methods=['GET','POST'])
+def sign_out(staff_id):
+    try:
+	    user_agent = request.headers.get('User-Agent')
+	    print(user_agent)
+	    print(request.method == 'POST')
+	    if request.method == 'POST':
+		    print('POST')
+		    data = request.get_json()
+		    post_data.append(data) #ページから送られてくる信号を格納する配列
+		    print(post_data)
+		    print('auth_array')
+		    print(auth_array)
+		    
+		    
+		    if 'ログアウト' in post_data:
+			    auth_array.remove(staff_id)
+			    post_data.clear()
+		    elif auth_array.count(staff_id) >= 2:
+			     auth_array.remove(staff_id)
+		   
+			    
+		    print(post_data)
+		    print('auth_array')
+		    print(auth_array)
+		    return 'page change'
+	    print('auth_array last')
+	    auth_array.remove(int(staff_id))
+	    print(auth_array)
+    except  ValueError:
+	    return redirect(url_for('sign_in'))
+    return redirect(url_for('sign_in'))
+	
+	
+def resident_data(floor):
+	start_id = floor + '01'
+	end_id = floor + '16'
+	cursor.execute("SELECT * FROM resident WHERE number BETWEEN %s AND %s" % (int(start_id), int(end_id)));
+	results = cursor.fetchall()
+	return results
+
+def all_space_name():
+	cursor.execute("SELECT * FROM space_data");
+	results = cursor.fetchall()
+	return results
+
+
+@app.route('/<int:staff_id>/home',methods=['GET','POST'])
+def home_view(staff_id):
+	now = datetime.datetime.now()
+	day = now.strftime("%Y-%m-%d")
+	time = now.strftime("%H:%M:%S")
+	db_check = 'check'
+
+	print('home page?')
+	current_year = datetime.datetime.now().year
+	current_month = datetime.datetime.now().month
+	calendar_month = f"{current_year}-{current_month:02d}"
+	print('calendar_month: ',calendar_month)
+	cursor.execute("""
+	SELECT resident_name
+	FROM door_record
+	WHERE exit_day = '%s'
+	AND entrance_day is Null
+	AND (resident_name, COALESCE(exit_time, '0000-00-00 00:00:00')) IN (
+	SELECT resident_name, MAX(COALESCE(exit_time, '0000-00-00 00:00:00')) AS latest_timestamp
+	FROM door_record
+	WHERE exit_day = '%s'
+	GROUP BY resident_name
+	)
+	"""  % (day, day))
+	go_resident = list(chain(*cursor.fetchall()))
+	cursor.execute("SELECT start_time FROM space_rental")
+	check_space = cursor.fetchall()
+	space_rental_all = ''
+	all_data = []
+	for i in range(3, 11):
+		data = resident_data(str(i))
+		all_data.append(data)
+	all_space = all_space_name()
+	cursor.execute("SELECT * FROM staff")
+	staff_data = cursor.fetchall()
+	login_staff = SwitchView.serch_staff(staff_id)
+
+	if request.method == 'POST':
+		data = request.get_json()
+		post_resident = data.get('resident_id')
+		post_space = data.get('space_name')
+		post_rental_start = data.get('rental_start_time')
+		post_rental_end = data.get('rental_end_time')
+		post_reason = data.get('reason')
+		staff_name = data.get('staff_name')
+		post_staff_id = data.get('staff_id')
+		staff_rental_start = data.get('staff_rental_start')
+		staff_rental_end = data.get('staff_rental_end')
+		staff_reason = data.get('staff_reason')
+		
+		if  post_resident != '' and post_space != '' and post_staff_id == '':
+			print('space add')
+			cursor.execute("""
+			SELECT * FROM space_rental
+			WHERE
+			( (start_time <= '%s' AND end_time >= '%s')
+			OR
+			(start_time >= '%s' AND end_time <= '%s')
+			OR
+			(start_time <= '%s' AND end_time >= '%s' AND end_time >= '%s')
+			OR
+			(start_time >= '%s' AND end_time >= '%s' AND start_time <= '%s') ) AND space_name = '%s'  AND start_time LIKE '%s'
+			""" % (post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_start,post_rental_end,post_rental_end,post_space,(day + '%')));
+			calendar_check = cursor.fetchall()
+			print('calendar test')
+			print(calendar_check)
+			print(calendar_check == ())
+			if calendar_check == ():
+				cursor.execute("""
+			        INSERT INTO space_rental (staff_or_resident,user_id,date_time,start_time,end_time,space_name,reason)
+			        VALUES('resident',%s,'%s','%s','%s','%s','%s')"""
+			        % (post_resident,(day + ' ' + time),post_rental_start,post_rental_end,post_space,post_reason))
+				connection.commit()
+			elif calendar_check != ():
+				db_check = 'not data save'
+				print('db_check:',db_check)
+
+	return render_template('home.html',staff_id=staff_id,login_staff=login_staff, all_data=all_data,space_data='',space_name='',
+	all_space=all_space,day='',staff_data=staff_data,space_rental_all=space_rental_all,select_month='',go_resident=go_resident,
+	space_check='',db_check=db_check)
+
+@app.route('/<int:staff_id>/setting')
+def setting_view(staff_id):
+        all_data = []
+        for i in range(3, 11):
+                data = resident_data(str(i))
+                all_data.append(data)
+        all_space = all_space_name()
+        cursor.execute("SELECT * FROM staff")
+        staff_data = cursor.fetchall()
+        login_staff = SwitchView.serch_staff(staff_id)
+        return render_template('setting.html',staff_id=staff_id,login_staff=login_staff, all_data=all_data,space_data='',space_name='',all_space=all_space,day='',staff_data=staff_data)
+
+
+@app.route('/home_submit', methods=['POST'])
+def submit_form():
+	now = datetime.datetime.now()
+	day = now.strftime("%Y-%m-%d")
+	time = now.strftime("%H:%M:%S")
+
+	data = request.get_json()
+	post_resident = data.get('resident_id')
+	post_space = data.get('space_name')
+	post_rental_start = data.get('rental_start_time')
+	post_rental_end = data.get('rental_end_time')
+	post_reason = data.get('reason')
+	post_go_out = data.get('go_out')
+	post_go_out_reason = data.get('go_out_reason')
+	staff_name = data.get('staff_name')
+	create_space = data.get('create_space')
+	staff_id = data.get('staff_id')
+	staff_rental_start = data.get('staff_rental_start')
+	staff_rental_end = data.get('staff_rental_end')
+	staff_reason = data.get('staff_reason')
+	mail = data.get('mail')
+	mail_id = data.get('mail_id')
+	status = data.get('status')
+	login_staff_id = data.get('login_staff_id')
+	print('mail: ',mail)
+	print('resident_id: ',post_resident)
+	print(post_resident)
+	print(post_space)
+	print(post_resident != '' and post_go_out != '' and post_space == '' or post_resident != '' and post_go_out != '' and post_space is None)
+	print(create_space != '')
+	print(create_space is None)
+	print(post_go_out)
+	print(post_go_out_reason)
+	print('staff rental space: ',post_go_out == '' and post_space != '' and staff_id != '' and post_resident == '')
+	day_name = 'exit_day'
+	time_name = 'exit_time'
+	if post_go_out == 'return':
+		day_name = 'entrance_day'
+		time_name = 'entrance_time'
+	if status == 'complete' and mail_id is not None:
+		cursor.execute("UPDATE resident_mail SET status = 'complete',check_staff = '%s' WHERE id = %s" % (staff_name, mail_id));
+		connection.commit()
+	elif mail == 'mail':
+		cursor.execute("INSERT INTO resident_mail(resident_id,reason,keep_mail_day,staff_name,status) VALUES(%s,'%s','%s','%s','keep')" % (post_resident,post_go_out_reason,day,staff_name));
+		connection.commit()
+	elif create_space is not None and create_space != '':
+		print('is not none')
+		cursor.execute("INSERT INTO space_data(space_name) VALUES('%s')" % (create_space))
+		connection.commit()
+	elif post_resident != '' and post_go_out != '' and post_space == '' or post_resident != '' and post_go_out != '' and post_space is None:
+		cursor.execute("SELECT * FROM resident WHERE id = '%s'" % (post_resident))
+		select_resident = cursor.fetchone()
+		print('select_resident: ',select_resident)
+		event = [post_go_out,day,select_resident[4],time,post_resident,select_resident[1],post_go_out_reason,staff_name]
+		print(type(event) == list)
+		print(True)
+		print("INSERT INTO door_record (resident_id,%s,%s,go_out_reason,) VALUES(%s,'%s','%s','%s')" % (day_name,time_name,post_resident,day,time,post_go_out_reason))
+		#cursor.execute("INSERT INTO door_record (resident_id,%s,%s,go_out_reason) VALUES(%s,'%s','%s','%s')" % (day_name,time_name,post_resident,day,time,post_go_out_reason))
+		#connection.commit()
+		SwitchView.insert_door(event)
+	elif  post_resident != '' and post_go_out == '' and post_space != '' and staff_id == '':
+		print('space add')
+		cursor.execute("""
+		SELECT * FROM space_rental
+		WHERE
+ 		( (start_time <= '%s' AND end_time >= '%s')
+  		OR
+  		(start_time >= '%s' AND end_time <= '%s')
+  		OR
+  		(start_time <= '%s' AND end_time >= '%s' AND end_time >= '%s')
+  		OR
+  		(start_time >= '%s' AND end_time >= '%s' AND start_time <= '%s') ) AND space_name = '%s'  AND start_time LIKE '%s' 
+		""" % (post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_start,post_rental_end,post_rental_end,post_space,(day + '%')));
+		calendar_check = cursor.fetchall()
+		print('calendar test')
+		print(calendar_check)
+		print(calendar_check == ())
+		if calendar_check == ():
+			
+			cursor.execute("""
+			INSERT INTO space_rental (staff_or_resident,user_id,date_time,start_time,end_time,space_name,reason) 
+			VALUES('resident',%s,'%s','%s','%s','%s','%s')"""
+		 	% (post_resident,(day + ' ' + time),post_rental_start,post_rental_end,post_space,post_reason))
+			connection.commit()
+		elif calendar_check != ():
+			print('test')
+	elif post_go_out == '' and post_space != '' and staff_id != '' and post_resident == '':
+		cursor.execute("""
+                SELECT * FROM space_rental
+                WHERE
+                ( (start_time <= '%s' AND end_time >= '%s')
+                OR
+                (start_time >= '%s' AND end_time <= '%s')
+                OR
+                (start_time <= '%s' AND end_time >= '%s' AND end_time >= '%s')
+                OR
+                (start_time >= '%s' AND end_time >= '%s' AND start_time <= '%s') ) AND space_name = '%s'  AND start_time LIKE '%s'
+                """ % (post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_end,post_rental_start,post_rental_start,post_rental_end,post_rental_end,post_space,(day + '%')));
+		calendar_check = cursor.fetchall()
+		if calendar_check == ():
+			cursor.execute("""INSERT INTO space_rental 
+			(staff_or_resident,user_id,date_time,start_time,end_time,space_name,reason) 
+			VALUES('staff',%s,'%s','%s','%s','%s','%s')""" 
+			% (staff_id,(day + ' ' + time),staff_rental_start,staff_rental_end,post_space,staff_reason))
+			connection.commit()
+		elif calendar_check != ():
+			print('test')
+	return jsonify({'status': 'success'})
+
+@app.route('/<staff_id>/mail/<resident_id>/<mail_status>', methods=['POST','GET'])
+def mail_view(staff_id,resident_id,mail_status):
+	select_value = 1
+	if mail_status == 'all_record':
+		select_value = 0
+	
+	if  resident_id == '-1':
+		cursor.execute(
+		"""
+		SELECT *
+		FROM (
+		SELECT resident_mail.*,
+                resident.name AS resident_name,
+		CASE WHEN status = '%s' THEN 1 ELSE 0 END AS is_kept
+		FROM resident_mail
+		LEFT JOIN resident ON resident_mail.resident_id = resident.id
+		ORDER BY resident_mail.keep_mail_day DESC
+		) AS subquery
+		WHERE is_kept = %s
+		"""
+		% (mail_status,select_value))
+		all_mail = cursor.fetchall()
+	elif resident_id != '-1':
+		cursor.execute(
+		"""
+		SELECT *
+		FROM (
+		SELECT resident_mail.*,
+		resident.name AS resident_name,
+		CASE WHEN status = '%s' THEN 1 ELSE 0 END AS is_kept
+		FROM resident_mail
+		LEFT JOIN resident ON resident_mail.resident_id = resident.id
+		ORDER BY resident_mail.keep_mail_day DESC
+		) AS subquery
+		WHERE is_kept = %s
+		AND
+		subquery.resident_id = %s
+		"""
+		% (mail_status,select_value,resident_id))
+		all_mail = cursor.fetchall()
+	residents = SwitchView.all_residents()
+	cursor.execute("SELECT * FROM staff")
+	staff_data = cursor.fetchall()
+	login_staff = SwitchView.serch_staff(staff_id)
+	page = request.args.get(get_page_parameter(), type=int, default=1)
+	limit = all_mail[(page -1)*10:page*10]
+	pagination = Pagination(page=page, total=len(all_mail))
+	return render_template('mail.html',staff_id=staff_id,login_staff=login_staff,residents=residents,all_mail=limit,pagination=pagination, page=page)
+
+@app.route('/<staff_id>/<space_name>/<day>', methods=['POST','GET'])
+def return_space_data(staff_id,space_name,day):
+	print('space_view page?')
+	#cursor.execute("SELECT resident.name,user_id,start_time,end_time,reason FROM space_rental JOIN resident ON space_rental.user_id = resident.id WHERE space_name IS NOT NULL")
+
+	cursor.execute("""
+      SELECT
+      resident.name,
+      staff.name,
+      space_rental.start_time,
+      space_rental.end_time,
+      space_rental.reason,
+      staff.id AS user_id,
+      resident.id AS user_id
+      FROM space_rental
+      LEFT JOIN staff ON space_rental.user_id = staff.id AND space_rental.staff_or_resident = 'staff'
+      LEFT JOIN resident ON space_rental.user_id = resident.id AND space_rental.staff_or_resident = 'resident'
+      WHERE space_rental.space_name = '%s' and space_rental.start_time LIKE '%s';
+    """ % (space_name, (day + '%')))
+	space_data = cursor.fetchall()
+	now = datetime.datetime.now()
+	day = now.strftime("%Y-%m-%d")
+	time = now.strftime("%H:%M:%S")
+	cursor.execute("""
+        SELECT resident_name
+        FROM door_record
+        WHERE exit_day = '%s'
+        AND entrance_day is Null
+        AND (resident_name, COALESCE(exit_time, '0000-00-00 00:00:00')) IN (
+        SELECT resident_name, MAX(COALESCE(exit_time, '0000-00-00 00:00:00')) AS latest_timestamp
+        FROM door_record
+        WHERE exit_day = '%s'
+        GROUP BY resident_name
+        )
+        """  % (day, day))
+	go_resident = list(chain(*cursor.fetchall()))
+	print(space_data) 
+	current_year = datetime.datetime.now().year
+	current_month = datetime.datetime.now().month
+	calendar_month = f"{current_year}-{current_month:02d}"
+	print('calendar_month: ',calendar_month)
+	space_rental_all = ''
+	all_data = []
+
+	for i in range(3, 11):
+		data = resident_data(str(i))
+		all_data.append(data)
+	all_space = all_space_name()
+	cursor.execute("SELECT * FROM staff")
+	staff_data = cursor.fetchall()
+	login_staff = SwitchView.serch_staff(staff_id)
+	return render_template('home.html',staff_id=staff_id,login_staff=login_staff, all_data=all_data,space_data=space_data,space_name=space_name,all_space=all_space,day=day,staff_data=staff_data,space_rental_all=space_rental_all,select_month='',go_resident=go_resident)
+
+@app.route('/<staff_id>/<select_month>/calendar', methods=['POST','GET'])
+def calendar_data(staff_id, select_month):
+	print('calendar_month: ',select_month)
+	cursor.execute("""
+	SELECT
+	space_rental.*,
+	staff.name,
+	resident.name
+	FROM
+	space_rental
+	LEFT JOIN staff ON space_rental.user_id = staff.id AND space_rental.staff_or_resident = 'staff'
+	LEFT JOIN resident ON space_rental.user_id = resident.id AND space_rental.staff_or_resident = 'resident'
+	where space_rental.start_time like '%s'
+	ORDER BY start_time ASC
+	""" % (select_month + '%'))
+	space_rental_all = cursor.fetchall()
+	now = datetime.datetime.now()
+	day = now.strftime("%Y-%m-%d")
+	time = now.strftime("%H:%M:%S")
+	cursor.execute("""
+        SELECT resident_name
+        FROM door_record
+        WHERE exit_day = '%s'
+        AND entrance_day is Null
+        AND (resident_name, COALESCE(exit_time, '0000-00-00 00:00:00')) IN (
+        SELECT resident_name, MAX(COALESCE(exit_time, '0000-00-00 00:00:00')) AS latest_timestamp
+        FROM door_record
+        WHERE exit_day = '%s'
+        GROUP BY resident_name
+        )
+        """  % (day, day))
+	go_resident = list(chain(*cursor.fetchall()))
+	print('rental_data: ',space_rental_all[0])
+	all_data = []
+	for i in range(3, 11):
+		data = resident_data(str(i))
+		all_data.append(data)
+	all_space = all_space_name()
+	cursor.execute("SELECT * FROM staff")
+	staff_data = cursor.fetchall()
+	login_staff = SwitchView.serch_staff(staff_id)
+	return render_template('home.html',staff_id=staff_id,login_staff=login_staff, all_data=all_data,space_data='',
+	space_name='',all_space=all_space,day='',staff_data=staff_data,space_rental_all=space_rental_all,select_month=select_month,
+	go_resident=go_resident)
+
+if __name__ == "__main__":
+    app.run(port = 8000, debug=True)
