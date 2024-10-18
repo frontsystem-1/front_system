@@ -77,14 +77,14 @@
                 {% elif space[1] == None %}
                 <p>使用者:{{space[0]}}様</p>
                 {% endif %}
-                <p>開始時間:<!--{{space[2]}}--></p>
-		<input type="datetime-local" id="rental_start_time" value="{{space[2]}}">
-                <p>終了時間:<!--{{space[3]}}--></p>
-		<input type="datetime-local" id="rental_end_time"  value="{{space[3]}}"> 
+                <p>開始時間:{{space[2]}}</p>
+		<!-- <input type="datetime-local" id="rental_start_time" value="{{space[2]}}"> -->
+                <p>終了時間:{{space[3]}}</p>
+		<!--<input type="datetime-local" id="rental_end_time"  value="{{space[3]}}"> -->
 		<input type="hidden" id="rental_space_id" value="{{space[7]}}">
-                <p>備考:<!--{{space[4]}}--></p>
-		<input type="text" id="rental_space_reason" value="{{space[4]}}">
-		<button style="margin:0;" onClick="updateRentalSpaceData()">更新</button> 
+                <p>備考:{{space[4]}}</p>
+		<!--<input type="text" id="rental_space_reason" value="{{space[4]}}">-->
+		<!--<button style="margin:0;" onClick="updateRentalSpaceData()">更新</button> -->
                 <hr>		
 
             {% endfor %}
@@ -231,21 +231,23 @@
         var day_data = ('0' + now.getDate()).slice(-2);
         var hours = ('0' + now.getHours()).slice(-2);
         var minutes = ('0' + now.getMinutes()).slice(-2);
+
 	var currentMonth = year + '-' + month //年月
         var currentDate =  year + '-' + month + '-' + day_data //年月日
         var currentDateTime = year + '-' + month + '-' + day_data + ' ' + hours + ':' + minutes + ':00'; //年月日時
 	console.log(document.getElementById('staffId').value)
+
 	//月の最初の日付を取得
 	var firstDay = new Date(year, month - 1, 1);
 	console.log({{all_data|tojson}})
         // 月の最終日を取得
         var lastDay = new Date(year, month, 0);
 	
-	//
+	//非同期でkettleデータベースとフロントシステム内のデーターベースの入居者様の際がないか確認。違う場合は新たにフロントシステム内にデータを追加
 	async function officedb_resident_check() {
 	    await console.log({{residents|tojson}})
 	　　var resident_name = [] //空の配列を作成
-	    var all_data = {{all_data|tojson}}
+	    var all_data = {{all_data|tojson}} //pythonから送られてきた入居者データ
 	    var post_check_data = {}
 	　　await all_data.forEach(function(value) { //pythonより受け取ったall_dataをひとつづつ取り出す
    		  value.forEach(function(item) { //上で取り出したデータを配列状にして空の配列(resident_name)に入れていく
@@ -277,7 +279,7 @@
 	    	})
 	}
 	
-	officedb_resident_check()
+	officedb_resident_check() //上記関数を実行
 	
 	//個々のスペース名がURLに入ってるのであれば、そのスペーシの使用状況タブをは表示する
         if (window.location.href == window.location.origin + '/' + {{staff_id|tojson}} + '/' + {{space_name|tojson}} + '/' +currentDate) {
@@ -295,6 +297,7 @@
         document.getElementById('startDateTime').value = currentDateTime;
         document.getElementById('endDateTime').value = currentDateTime;
 	document.getElementById('calendarMonth').value = {{select_month|tojson}};
+
         document.addEventListener("DOMContentLoaded", function() {
             // ボタン内のテキストを取得
             var buttons = document.querySelectorAll('.resident-btn');
@@ -311,15 +314,15 @@
             });
         });
 	
-	// ]共有スペースレンタル更新
+	// 共有スペースレンタル更新
 	function updateRentalSpaceData() {
 	   var post_data = {
-	        update_start_time: document.getElementById('rental_start_time').value,
-		update_end_time: document.getElementById('rental_end_time').value,
-		update_id: document.getElementById('rental_space_id').value,
-		update_reason: document.getElementById('rental_space_reason').value	
+	        update_start_time: document.getElementById('rental_start_time').value, //更新した開始時間
+		update_end_time: document.getElementById('rental_end_time').value, //更新した終了時間
+		update_id: document.getElementById('rental_space_id').value, //レンタルスペース記録のid
+		update_reason: document.getElementById('rental_space_reason').value //更新した備考
 	   }
-	   fetch('/update_rental_space', {
+	   fetch('/update_rental_space', { //fetchで上記データをpythonへpostする
             method: 'POST',
 	    headers: {
                 'Content-Type': 'application/json',	
@@ -342,14 +345,15 @@
 	   
 	}	
 
-
+	//現在の年月のカレンダーページにurlを変更する
 	function calendarPage(select_month) {
 	   page_update()
-	   window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/' + select_month + '/calendar'
+	   window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/' + select_month + '/-1/calendar'
 	}
+	//選択した年月のカレンダーページにURLを変更する
 	function calendarSelect() {
 	    page_update
-	    window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/' + document.getElementById('calendarMonth').value  + '/calendar'
+	    window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/' + document.getElementById('calendarMonth').value  + '/-1/calendar'
 	}
 	
 	// もしURLに年月とカレンダーが入っていたら、spaceCalendar()を実行しカレンダータブを表示する
@@ -524,13 +528,14 @@
             }
 	window.location.href = '/' + {{staff_id|tojson}} + '/home';
         }
-
+	
+	//pythonへ郵便物のデータをpostする
 	function pushMail() {
 	    var post_data = {
-                resident_id: resident_id,
-                go_out_reason: document.getElementById('goOutReason').value,
-                staff_name: staff_name,
-		mail: 'mail',
+                resident_id: resident_id, //入居者id
+                go_out_reason: document.getElementById('goOutReason').value, //備考
+                staff_name: staff_name, //担当職員
+		mail: 'mail', //郵便であるための照明データ
             };
             console.log(post_data)
             fetch('/home_submit', {

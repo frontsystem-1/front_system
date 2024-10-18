@@ -147,10 +147,10 @@
         {{ pagination.links }}
   <script>
     
-    let today = new Date();
-    let flask_day = new Date({{day_value|tojson}});
+    let today = new Date(); //現在日時
+    let flask_day = new Date({{day_value|tojson}}); //pythonから送られてきた日時
 
-    function make_day(day) {
+    function make_day(day) { //日付フォーマットを整える
       day.setDate(day.getDate());
       let yyyy = day.getFullYear();
       let mm = ('0' + (day.getMonth() + 1)).slice(-2);
@@ -159,25 +159,29 @@
     }
     
 
-    flask_day = make_day(flask_day)
+    flask_day = make_day(flask_day) //pythonから送られてきた日付をmake_dayで整えflask_dayに入れる
+
     document.getElementById('flask_day').value = {{page_value|tojson}};
     document.getElementById('today').value = {{page_value|tojson}}
-     if ({{page_value|tojson}} == flask_day + ' ') {
-      document.getElementById('today').value = ({{page_value|tojson}}).slice(0,-1)
+
+     if ({{page_value|tojson}} == flask_day + ' ') { //page_value(urlの日付)とflask_dayが一致する場合
+      document.getElementById('today').value = ({{page_value|tojson}}).slice(0,-1) //idがtodayのinputタグにこのデータを反映させる
     }
-    document.getElementById('resident_id').value = {{resident_data|tojson}}
-    document.getElementById('return_check').value = {{return_check|tojson}}
+
+    document.getElementById('resident_id').value = {{resident_data|tojson}} //上段の入居者選択項目
+    document.getElementById('return_check').value = {{return_check|tojson}} //上段の状態選択項目(帰館、未帰館)
     console.log(document.getElementById('flask_day').value)
-    if(!document.getElementById('flask_day').value) {
+    if(!document.getElementById('flask_day').value) { //もしid flask_dayのvalueが空の場合、今日の日付を代入する
       document.getElementById('flask_day').value = make_day(today)
     }
     
     
     
-    var page_value = document.getElementById('flask_day').value
-    var resident_id = document.getElementById('resident_id').value
-    var return_check = document.getElementById('return_check').value
+    var page_value = document.getElementById('flask_day').value //選択日付をpage_valueに代入
+    var resident_id = document.getElementById('resident_id').value //選択入居者をresident_idに代入
+    var return_check = document.getElementById('return_check').value //選択状態をreturn_checkに代入
     
+    //上記変数で定火した値をURLに入れpythonにデータをpostし、ページ内の内容を送ったリクエストに沿ったものに変更する
     function search_record() {
       window.addEventListener('beforeunload', function(event) {
         fetch('/' + {{staff_id|tojson}} + '/sign_out', {
@@ -200,6 +204,8 @@
       page_update()
       window.location.href = window.location.origin + '/' + {{staff_id|tojson}} + '/'+ document.getElementById('flask_day').value + '/' + document.getElementById('resident_id').value + '/' + document.getElementById('return_check').value
     }
+    
+    //ページネーション装飾・id追加
     var li_btn = document.getElementsByTagName('li');
     var active_page = document.getElementsByClassName('active');
     var disabled_btn = document.getElementsByClassName('disabled');
@@ -222,6 +228,7 @@
       li_btn[page_len].parentNode.removeChild(li_btn[page_len])
     }
     
+    //ページを移動するごとに動作をpostすることで状態を確認していたが使わなくていいかも
     function page_record(event,page) {
         
         fetch('/' + {{staff_id|tojson}} + '/sign_out', {
@@ -241,7 +248,8 @@
           console.error('Error:', error);
         });
       }
-      
+
+      //上記同様
       function add_form_post_record() {
         fetch('/' + {{staff_id|tojson}} + '/sign_out', {
         method: 'POST', // リクエストメソッド
@@ -252,13 +260,14 @@
         })
       }
       
+      //記録追加
       function do_post() {
 	console.log('do post')
 	var post_data = {
-	go_out: document.getElementById('go_out').value,
-	door_date: document.getElementById('today').value,
-	door_time: document.getElementById('door_time').value,
-	select_resident_id: document.getElementById('select_resident_id').value	
+	go_out: document.getElementById('go_out').value, //外出か帰宅か
+	door_date: document.getElementById('today').value, //年月
+	door_time: document.getElementById('door_time').value, //時間
+	select_resident_id: document.getElementById('select_resident_id').value	//入居者id
         };
 	console.log('/'+{{staff_id|tojson}}+'/'+document.getElementById('flask_day').value+'/-1/all_record')
         fetch('/'+{{staff_id|tojson}}+'/'+document.getElementById('flask_day').value+'/-1/all_record', {
@@ -266,7 +275,7 @@
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(post_data)
+        body: JSON.stringify(post_data) //上記のpost_dataをpythonに送る
         })
         .then(response => {
         if (response.ok) {
@@ -284,62 +293,66 @@
 	//add_form_post_record();
       }
       
+      //記録更新
       function record_update(go_time,return_time,reason1,reason2,go_id,return_id,resident_name) {
-	document.getElementById('updateRecord').style.display = 'flex'
-	document.getElementById('go_first_time').value = go_time
-	document.getElementById('return_first_time').value = return_time 
-	document.getElementById('go_id').value = go_id
-	document.getElementById('return_id').value = return_id
-	document.getElementById('go_time').value = go_time
-	document.getElementById('return_time').value = return_time
+	document.getElementById('updateRecord').style.display = 'flex' //display:noneからflexに変更し、更新入力フォームを表示させる
+	document.getElementById('go_first_time').value = go_time //最初に登録した外出時間
+	document.getElementById('return_first_time').value = return_time //最初に登録した帰宅時間
+	document.getElementById('go_id').value = go_id //外出記録のid
+	document.getElementById('return_id').value = return_id //帰宅記録のid
+	document.getElementById('go_time').value = go_time //外出時間
+	document.getElementById('return_time').value = return_time //帰宅時間
 	
-	if (document.getElementById('go_first_time').value == ''){
+	if (document.getElementById('go_first_time').value == ''){ //最初に登録した外出時間が空の場合は,記録の外出時間を登録する
             console.log('None go time')
             document.getElementById('go_first_time').value = go_time
-        } else if (document.getElementById('return_first_time').value == '') {
+        } else if (document.getElementById('return_first_time').value == '') { //上記処理と同様に帰宅時間も処理する
              console.log('None return time')
             document.getElementById('return_first_time').value = return_time
         }
-	if (reason2 == 'None') {
+	if (reason2 == 'None') { //帰宅時間側の備考が空の場合、
 		console.log(1)
-		document.getElementById('reason').value = reason1
-		if (reason1 == 'None') {
+		document.getElementById('reason').value = reason1 //表示する備考は外出側の備考
+		if (reason1 == 'None') { //その上で外出側の備考も空の場合は、''で表示する
 			console.log(3)
 			document.getElementById('reason').value = ''
 			console.log(document.getElementById('reason').value)
 		}
-	} else {
+	} else { //その他の場合(外出側の備考が空)
 		console.log(2)
-		document.getElementById('reason').value = reason2
+		document.getElementById('reason').value = reason2 //帰宅側の備考を表示
 
-		if (reason2 == 'None') {
+		if (reason2 == 'None') { //帰宅側の備考がからなら''を表示
 			console.log(4)
                         document.getElementById('reason').value = ''
                 }
 	}
 	document.getElementById('resident_name').value = resident_name
       }
-      
+
+　　　//下段の登録フォーム      
       function post_update_record() {
-	if (document.getElementById('go_first_time').value == 'None'){
+	if (document.getElementById('go_first_time').value == 'None'){ //上記関数と同様の処理
             console.log('None go time')
             document.getElementById('go_first_time').value = document.getElementById('go_time').value
-        } else if (document.getElementById('return_first_time').value == 'None') {
+        } else if (document.getElementById('return_first_time').value == 'None') { //上記関数と同様の処理
              console.log('None return time')
             document.getElementById('return_first_time').value = document.getElementById('return_time').value
         }
 	console.log(document.getElementById('return_first_time').value)
 	console.log(document.getElementById('return_time').value)
+	//pythonにpostするデータ
 	var post_data = {
-        resident_name: document.getElementById('resident_name').value,
-        go_id: document.getElementById('go_id').value,
-        return_id: document.getElementById('return_id').value,
-        go_time: document.getElementById('go_time').value,
-        return_time: document.getElementById('return_time').value,
-        reason: document.getElementById('reason').value,
-	go_first_time: document.getElementById('go_first_time').value,
-	return_first_time: document.getElementById('return_first_time').value
+        resident_name: document.getElementById('resident_name').value, //入居者名
+        go_id: document.getElementById('go_id').value, //外出記録id
+        return_id: document.getElementById('return_id').value, //帰宅記録id
+        go_time: document.getElementById('go_time').value, //外出時間
+        return_time: document.getElementById('return_time').value, //帰宅時間
+        reason: document.getElementById('reason').value, //備考
+	go_first_time: document.getElementById('go_first_time').value, //初期外出登録時間
+	return_first_time: document.getElementById('return_first_time').value //初期帰宅登録時間
 	};
+	//上記をpythonにpostする
 	fetch('/record_update', {
         method: 'POST',
         headers: {

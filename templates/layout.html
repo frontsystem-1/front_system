@@ -311,6 +311,10 @@
 	font-size: 2rem;
 	width: 5%;
 	}
+	
+	.close-icon:hover {
+	background-color: #EFECE5;
+	}
 
 
 	#goOutValue {
@@ -404,6 +408,33 @@
     width: 100%;
 	margin-top: 3%;
     }
+
+    #updateElement {
+    position: absolute;
+    z-index: 2; /* 最も上に表示される要素 */
+    width:50%;
+    background-color: #fff;
+        margin-top: 30px;
+    margin-left: 20%;
+    margin-right: 30%;
+        padding: 2%;
+        padding-bottom: 1%;
+        padding-top: 0;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        height: 50%;
+    }
+
+        #updateElement .input-container {
+                position: relative;
+        }
+
+    #updateElement .input-container .input-field {
+    height: 100%;
+    width: 100%;
+        margin-top: 3%;
+    }
+
 
     #staffRoom {
     position: absolute;
@@ -513,7 +544,7 @@
 		
 	#calendarView {
 	position: absolute;
-    	z-index: 2;
+    	z-index: 0;
         background-color: #fff;
         width:90%;
 	margin-right:6%;

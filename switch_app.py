@@ -835,6 +835,7 @@ class SwitchView(object):
 		go_resident=go_resident,space_check='',db_check=db_check,remarks=remarks,all_resident_name=all_resident_name,residents=residents,
 		go_resident_time=go_resident_time)
 
+	
 	#使っていない
 	@app.route('/check_residents',methods=['POST'])
 	def check_residents():
@@ -1236,9 +1237,18 @@ class SwitchView(object):
 		connection.commit()
 		return jsonify({'status': 'success'})
 
-	@app.route('/<staff_id>/<select_month>/calendar', methods=['POST','GET'])
-	def calendar_data(staff_id, select_month): #カレンダーページ
-		cursor.execute("""
+
+	@app.route('/<staff_id>/<select_month>/<select_room>/calendar', methods=['POST','GET'])
+	def calendar_data(staff_id, select_month,select_room): #カレンダーページ
+		now = datetime.datetime.now()
+		day = now.strftime("%Y-%m-%d")
+		time = now.strftime("%H:%M:%S")
+		where_value = ''
+		all_space = SwitchView.all_space_name()
+		if select_room != '-1':
+			where_value = select_room
+			print('where_value:',where_value)
+			cursor.execute("""
 		SELECT
 		space_rental.*,
 		staff.name,
@@ -1248,60 +1258,33 @@ class SwitchView(object):
 		LEFT JOIN staff ON space_rental.user_id = staff.id AND space_rental.staff_or_resident = 'staff'
 		LEFT JOIN resident ON space_rental.user_id = resident.id AND space_rental.staff_or_resident = 'resident'
 		where space_rental.start_time like '%s'
+		and space_rental.space_name = '%s'
 		ORDER BY start_time ASC
-		""" % (select_month + '%'))
-		space_rental_all = cursor.fetchall() #その月の共有スペース使用状況
+		""" % (select_month + '%',where_value))
+			space_rental_all = cursor.fetchall() #その月の共有スペース使用状況
+
+		elif select_room == '-1':
+			print('space_name check',select_room)
+			cursor.execute("""
+			SELECT
+			space_rental.*,
+		staff.name,
+		resident.name
+		FROM
+		space_rental
+		LEFT JOIN staff ON space_rental.user_id = staff.id AND space_rental.staff_or_resident = 'staff'
+		LEFT JOIN resident ON space_rental.user_id = resident.id AND space_rental.staff_or_resident = 'resident'
+		where space_rental.start_time like '%s'
+		ORDER BY start_time ASC
+			""" % (select_month + '%'))
+			space_rental_all = cursor.fetchall() #その月の共有スペース使用状況
 		#以下homeページと同様の処理(home.htmlを使いまわしているため)
-		now = datetime.datetime.now()
-		day = now.strftime("%Y-%m-%d")
-		time = now.strftime("%H:%M:%S")
-		print(""" 
-		SELECT cr.id,         
-		cr.datetime,         
-		cr.type,         
-		MAX(cr.idm) AS max_idm,         
-		MAX(c.id) AS return_id,         
-		MAX(c.datetime) AS return_datetime,         
-		MAX(c.type) AS return_type,         
-		MAX(c.idm) AS return_idm 
-		FROM card_record AS cr LEFT JOIN card_record AS c ON cr.idm = c.idm AND c.datetime > cr.datetime WHERE cr.datetime 
-		LIKE '%s'   AND cr.type = 'go' GROUP BY cr.id HAVING MAX(c.id) IS NULL
-		""" % (day + '%'))
-		cursor.execute("""
-                        SELECT 
-                        r.name,
-                        t1.datetime,
-                        t2.datetime
-                        FROM 
-                        resident r
-                        LEFT JOIN 
-                        card_record t1 ON r.name = t1.idm 
-                        AND t1.datetime LIKE '%s'
-                        LEFT JOIN 
-                        return_data t2 ON r.name = t2.idm 
-                        AND t2.datetime LIKE '%s'
-                        AND (t1.datetime <= t2.datetime OR t1.datetime is NULL)
-                        WHERE 
-                        (t1.datetime IS NOT NULL 
-                        AND t2.datetime IS NULL )  
-                        ORDER BY 
-                        t1.datetime DESC
-		""" % (day + '%',day + '%'))
-
-
-		go_resident = list(chain(*cursor.fetchall()))
-		all_data = []
-		all_resident_name=[]
-		for i in range(3, 11):
-			data = SwitchView.resident_data(str(i))
-			all_data.append(data[0])
-			all_resident_name.append(data[1])
-		all_space = SwitchView.all_space_name()
 		cursor.execute("""
 		SELECT space_name,start_time,end_time FROM space_rental
 		WHERE start_time >= '%s' OR end_time >= '%s'
 		""" % (day + ' ' + time[:-3],day + ' ' + time[:-3]))
 		db_check=cursor.fetchall()
+		print()
 		cursor.execute("SELECT * FROM staff")
 		staff_data = cursor.fetchall()
 		login_staff = SwitchView.serch_staff(staff_id)
@@ -1317,11 +1300,36 @@ class SwitchView(object):
 		json_string = result.stdout
 		json_data = json.loads(json_string)
 		residents = json_data.get("return")
-
+		space_data = SwitchView.all_space_name() #全ての共有スペースのデータ
+		
+		"""
 		return render_template('home.html',staff_id=staff_id,login_staff=login_staff, all_data=all_data,space_data='',
-		space_name='',all_space=all_space,day='',staff_data=staff_data,space_rental_all=space_rental_all,select_month=select_month,
-		go_resident=go_resident,db_check=db_check,all_resident_name=all_resident_name,residents=residents)
 
+		"""
+		return render_template('calendar.html',staff_id=staff_id,login_staff=login_staff,space_data=space_data,all_space=all_space,
+		space_name='',day='',staff_data=staff_data,space_rental_all=space_rental_all,select_month=select_month,
+		db_check=db_check,residents=residents)
+	
+	@app.route('/calendar/update',methods=['POST']) #カレンダーページで更新ボタンを押した時の処理
+	def update_space():
+		data = request.get_json()
+		post_id = data.get('rental_id') #送られてきた入居者id
+		post_start = data.get('rental_start')
+		post_end = data.get('rental_end')
+		post_reason = data.get('rental_reason')
+		
+		cursor.execute("UPDATE space_rental set date_time = '%s', end_time = '%s', reason = '%s' WHERE id = %s" % (post_start,post_end,post_reason,post_id))
+		connection.commit()
+		return jsonify({'status': 'success'})
+
+	@app.route('/calendar/delete',methods=['POST']) #カレンダーページで削除ボタンを押した時の処理
+	def delete_calendar():
+		data = request.get_json()
+		post_id = data.get('rental_id') #送られてきた入居者id
+		cursor.execute("DELETE FROM space_rental WHERE id = %s" % (post_id))
+		connection.commit()
+		return jsonify({'status': 'success'})
+		
 	#js確認用テストページ
 	@app.route('/<staff_id>/test', methods=['POST','GET'])
 	def test_view(staff_id):
